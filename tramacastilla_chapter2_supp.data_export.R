@@ -1,6 +1,6 @@
 #Export Supp Data
 #Needed version R 4.2.3
-load("E:/Saco/IJP/2_code/tramacastilla_chapter2_multiproxy_reconstruction/tramacastilla_chapter2_multiproxy_reconstruction.RData")
+load("E:/Saco/IJP/2_code/tramacastilla_chapter2/tramacastilla_multiproxy.RData")
 library(tidyverse)
 library(openxlsx)
 supp_data1 <- pollen_group %>%

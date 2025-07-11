@@ -6,7 +6,7 @@ lapply(packages, library, character.only = TRUE)
 usethis::use_git()
 
 ###### 0. Load data ####
-#load("E:/Saco/IJP/2_code/tramacastilla_chapter2/tram20_pollen_charcoal_v2.RData")
+#load("E:/Saco/IJP/2_code/tramacastilla_chapter2/tram20_multiproxy.RData")
 
 ###### 1. Load ages and depths ####
 load("E:/Saco/IJP/2_code/tramacastilla_chrono/tram20_depth_age.RData")
