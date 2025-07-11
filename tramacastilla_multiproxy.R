@@ -6,10 +6,10 @@ lapply(packages, library, character.only = TRUE)
 usethis::use_git()
 
 ###### 0. Load data ####
-#load("E:/Saco/IJP/2_code/tramacastilla_chapter2/tram20_multiproxy.RData")
+load("E:/Saco/IJP/2_code/tramacastilla_chapter2/tram20_multiproxy.RData")
 
 ###### 1. Load ages and depths ####
-load("E:/Saco/IJP/2_code/tramacastilla_chrono/tram20_depth_age.RData")
+#load("E:/Saco/IJP/2_code/tramacastilla_chrono/tram20_depth_age.RData")
 tram20_depth_ages <- read.table("E:/Saco/IJP/1_data/Tramacastilla/depth/TRAM20/Tram20_composite_depth_ages_v2.csv", header = TRUE, sep = ",")
 tram20_depth_ages_sed_rate <- tram20_depth_ages %>%
   rename("age" = "median") %>%
