@@ -1,26 +1,26 @@
 ---
-title: "tramacastilla_multiproxy"
-author: "irenejulianposada"
+title: "Multiproxy palaeoenvironmental reconstruction from Tramacastilla"
+author: "Irene Julián-Posada"
 date: "2025-07-11"
-output: html_document
+output: pdf_document
 ---
 This is the code used for multiproxy analysis from Tramacastilla Lake sequence, included in Julián-Posada et al. (in prep).
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 packages <- c("readxl", "dplyr", "tidyverse", "patchwork", "rioja", "vegan", "stringr",
               "janitor", "Bchron", "RRatepol", "scales", "tidyr", "lattice", "ggplot2",
               "usethis", "cowplot", "tapas", "nlme", "paletteer", "mgcv", "factoextra", "ggrepel",
-              "grid", "corrplot", "psych", "tidypaleo", "riojaPlot", "scales", "ggpattern") #RRatepol only works with R 4.2.0
+              "grid", "corrplot", "psych", "tidypaleo", "scales", "ggpattern") #RRatepol only works with R 4.2.0
 lapply(packages, library, character.only = TRUE)
-usethis::use_git()
 
-load("tram20_multiproxy.RData")
+load("tramacastilla_multiproxy.RData")
 ```
 
 # 1. Load ages and depths
 
 ```{r}
-head(tram20_depth_ages)
+head(tram20_depth_ages) # ages and depths for core TRAM20-1B
 tram20_depth_ages_sed_rate <- tram20_depth_ages %>%
   rename("age" = "median") %>%
   select(-depth) %>%
@@ -33,18 +33,26 @@ tram20_depth_ages_sed_rate <- tram20_depth_ages %>%
 # 2. Tramacastilla charcoal
 ## 2.1. Data upload
 ```{r}
-head(charcoal.tram) #charcoal data from Tramacastilla
+head(charcoal.tram) #charcoal data from Tramacastilla (core TRAM20-1B) obtained using Win seedle Pro 2020a software 
 head(samples_names) #names of charcoal samples
-head(Tramacastilla_age)
+Tramacastilla_age <- tram20_depth_ages %>% #ages and depths for charcoal samples
+  select(SampleId, median, composite_depth) %>%
+  rename("age" = "median",
+         "depth" = "composite_depth") %>%
+  mutate(age = as.numeric(age),
+         depth = as.numeric(depth)) %>%
+  mutate(SampleId = str_replace_all(SampleId, "TRAM20-1B-", "TRAM-")) %>%
+  filter(SampleId %in% samples_names$SampleId) %>%
+  mutate_all(~replace(., is.na(.), 0))
 ```
-I need to add samples that are not here because i should have 202 and i have 194, as they did not have charcoal particles
+There are 194 instead of 202 samples, as some of them have no data (no charcoal particles were found), so add them.
 ```{r}
 charcoal.tram.202 <- full_join(charcoal.tram, samples_names, by = "SampleId") %>%
   mutate(ImageType = ifelse(is.na(ImageType), "GLOBAL", ImageType)) #change ImageType to say GLOBAL for these new samples added
 
-length(unique(charcoal.tram.202$SampleId)) #make sure there are all 202 samples
+length(unique(charcoal.tram.202$SampleId)) #make sure there are 202 samples
 ```
-Now i want to duplicate this new rows so i can have one row for GLOBAL and other for SEEDLE
+Now duplicate this new rows to obtain one row for GLOBAL and other for SEEDLE
 ```{r}
 samples_no_data <- charcoal.tram.202 %>%
   filter(is.na(ImageId)) %>%
@@ -53,14 +61,14 @@ samples_no_data <- charcoal.tram.202 %>%
 charcoal.tram.all <- rbind(charcoal.tram.202, samples_no_data) %>%
   mutate_all(~replace(., is.na(.), 0))
 
-length(unique(charcoal.tram.all$SampleId)) #make sure there are all 202 samples
+length(unique(charcoal.tram.all$SampleId)) #make sure there are 202 samples
 ```
-I want to create 2 dataframes: one for global and another for seedle
+Create 2 dataframes: one for global and another for seedle
 ```{r}
 Gchar <- subset(charcoal.tram.all, ImageType=="GLOBAL")
 Schar <- charcoal.tram.all %>%
   subset(ImageType=="SEEDLE") %>%
-  mutate(NPath.WLRatio = ifelse(NPath.WLRatio > 1, 1/NPath.WLRatio, NPath.WLRatio)) %>% #change values of WLRatio>1 and do 1/that value due to software mistake
+  mutate(NPath.WLRatio = ifelse(NPath.WLRatio > 1, 1/NPath.WLRatio, NPath.WLRatio)) %>% #change values of WLRatio>1 and do 1/that value due to software mistake that has identified the width as the length
   mutate(NofSeedles = as.numeric(NofSeedles)) %>%
   mutate(DPI.ProjAreaObj = as.numeric(DPI.ProjAreaObj)) %>%
   mutate(ObjectId = as.numeric(ObjectId))
@@ -68,18 +76,21 @@ Schar <- charcoal.tram.all %>%
 length(unique(Gchar$SampleId)) #make sure there are 202 samples for GLOBAL
 length(unique(Schar$SampleId))#make sure there are 202 samples for SEEDLE
 ```
-## 2.2. I want to make a new data frame only with charcoal particles larger than 22500
-First i want to see the frequencies of area
+
+## 2.2. Make a new data frame only with charcoal particles larger than 22500
+First see the frequencies of area
 ```{r}
-hist(Schar$DPI.ProjAreaObj, breaks = seq(0, 850000, 5000))
+hist(Schar$DPI.ProjAreaObj, breaks = seq(0, 850000, 5000),
+     xlab = "Frequency of areas of charcoal particles",
+     main = paste("Area of charcoal particles"))
 summary(Schar$DPI.ProjAreaObj)
 ```
 25% of the particles are below 13496 um2, which is a sieve diameter of 116 um, and mean 35713.
-We are going to filter particles so we remove all that are below 110 um, that we assume is the noisy part of the signal --> I want to remove those charcoal with an area <110 um
+Now filter particles so remove all that are below 110 um, that we assume is the noisy part of the signal --> remove those charcoal with an area <110 um
 ```{r}
 seedles <- charcoal.tram.all %>%
   filter(ImageType == "SEEDLE" & DPI.ProjAreaObj > 12100) %>%
-  mutate(NPath.WLRatio = ifelse(NPath.WLRatio > 1, 1/NPath.WLRatio, NPath.WLRatio)) %>% #change values of WLRatio>1 and do 1/that value due to software mistake
+  mutate(NPath.WLRatio = ifelse(NPath.WLRatio > 1, 1/NPath.WLRatio, NPath.WLRatio)) %>% #change values of WLRatio>1 and do 1/that value due to software mistake that has identified the width as the length
   as.data.frame() %>%
   mutate(DPI.ProjAreaObj = as.numeric(DPI.ProjAreaObj))
 ```
@@ -96,7 +107,9 @@ totalarea <- seedles %>%
   summarise(sumCharArea = sum(DPI.ProjAreaObj, na.rm = TRUE))
 
 summary(totalarea$sumCharArea)
-hist(totalarea$sumCharArea, breaks = seq(0, 4500000, 50000))
+hist(totalarea$sumCharArea, breaks = seq(0, 4500000, 50000),
+     main = paste("Frequency of total area of charcoal particles"),
+     xlab = "Sun of charcoal particles area")
 
 seedles.age <- seedles %>%
   merge(Tramacastilla_age, by = "SampleId") %>%
@@ -106,6 +119,7 @@ seedles.age <- seedles %>%
   ungroup() %>%
   as.data.frame()
 ```
+
 ### 2.2.1. Create a data frame for plotting
 Create a file with one value per sample: count=length sampleID, W:L= mean W:L, area= sum ProjArea
 ```{r}
@@ -114,12 +128,13 @@ CharTotS_G.110.age <- merge(CharTotS_G.110, Tramacastilla_age, by = "SampleId")
 ```
 Check if area and charcoal number are correalted
 ```{r}
-cor.test(CharTotS_G.110.age$sumCharArea,CharTotS_G.110.age$CharCount, method="spearman", exact = FALSE) #87% of the data is correlated
+cor.test(CharTotS_G.110.age$sumCharArea,CharTotS_G.110.age$CharCount, method="spearman", exact = FALSE) 
 ```
-Check if that correlation is linnear or not
+87% of the data is correlated. Now check if that correlation is linnear or not
 ```{r}
-summary(lm(CharTotS_G.110.age$sumCharArea~CharTotS_G.110.age$CharCount)) #78% is the amount of data linnearly correlated
+summary(lm(CharTotS_G.110.age$sumCharArea~CharTotS_G.110.age$CharCount))
 ```
+78% of data is linearly correlated
 Join these two data frames to have all good charcoal particles with CharCount column
 ```{r}
 CharTotS_S.110 <- seedles %>%
@@ -136,6 +151,7 @@ Add ages to order the samples
 ```{r}
 CharTotS.110.age <- full_join(CharTotS.110, Tramacastilla_age, by = "SampleId")
 ```
+
 ### 2.2.2. Graphic representation
 ```{r}
 seedles %>% #min, max, mean of WLRatio
@@ -143,19 +159,23 @@ seedles %>% #min, max, mean of WLRatio
   geom_boxplot(outlier.shape = 20, width = 1) + 
   geom_hline(yintercept = 0.5, linetype = "dashed") +
   scale_x_continuous(limits = c(0, 2), expand = c(0, 0)) +
-  theme_classic()
+  theme_classic() +
+  ylab("W/L Ratio")
 ```
+
 ### 2.2.3. CharCount
 ```{r}
 CharTotS.110.age %>%
-  ggplot(aes(x = age, y = CharCount)) +
+  ggplot(aes(x = age/1000, y = CharCount)) +
   geom_line() +
-  xlab("Age (cal yr BP)") +
+  xlab("Age (ka BP)") +
   ylab("Number of charcoals") +
   ggtitle("Burnt biomass") +
   theme_classic() +
-  scale_x_reverse(breaks = seq(500, 12000, 500))
+  scale_x_reverse(breaks = seq(0.5, 12, by = 0.5),
+                  labels = ifelse(seq(0.5, 12, by = 0.5) %% 1 == 0, as.character(seq(0.5, 12, by = 0.5)), ""))
 ```
+
 ### 2.2.4. W/L Ratio
 ```{r}
 W.L.ratio <- seedles.age %>%
@@ -176,29 +196,34 @@ W.L.ratio %>%
   scale_fill_manual(values = c("Woody" = "darkgreen", "Grasslands" = "#FFD700")) +
   scale_color_manual(values = c("Woody" = "darkgreen", "Grasslands" = "#FFD700"))
 ```
+
 ### 2.2.5. Charcoal number and area
 ```{r}
 CC.110 <- CharTotS.110.age %>%
-  ggplot(aes(x = age, y = CharCount)) +
+  ggplot(aes(x = age/1000, y = CharCount)) +
   geom_line() +
-  labs(x = "Age (cal yr BP)", y = "Charcoal number") +
-  scale_x_reverse(breaks = seq(500, 12000, 500)) +
+  labs(x = "Age (ka BP)", y = "Charcoal number") +
+  scale_x_reverse(breaks = seq(0.5, 12, by = 0.5),
+                  labels = ifelse(seq(0.5, 12, by = 0.5) %% 1 == 0, as.character(seq(0.5, 12, by = 0.5)), "")) +
   scale_y_continuous(breaks = seq(min(CharTotS.110.age$CharCount),max(CharTotS.110.age$CharCount), by = 20)) +
   theme_classic() +
   geom_smooth(method = "loess", se = FALSE)
 
 SCA.110 <- CharTotS.110.age %>%
-  ggplot(aes(x = age, y = sumCharArea)) +
+  ggplot(aes(x = age/1000, y = sumCharArea)) +
   geom_line() +
-  labs(x = "Age (cal yr BP)", y = "Charcoal area (µm2)") +
-  scale_x_reverse(breaks = seq(500, 12000, 500)) +
+  labs(x = "Age (ka BP)", y = "Charcoal area (um2)") +
+  scale_x_reverse(breaks = seq(0.5, 12, by = 0.5),
+                  labels = ifelse(seq(0.5, 12, by = 0.5) %% 1 == 0, as.character(seq(0.5, 12, by = 0.5)), "")) +
   scale_y_continuous(breaks = seq(min(CharTotS.110.age$sumCharArea),max(CharTotS.110.age$sumCharArea), by = 500000)) +
   theme_classic() + 
   geom_smooth(method = "loess", se = FALSE)
 
 plot_grid(CC.110,SCA.110,ncol = 1, nrow = 2, align="v")
 ```
+
 # 3. CHAR (charcoal particles · cm-2 · yr-1)
+
 ## 3.1 Input data ####
 ```{r}
 head(mass.density) #dataframe with volume and mass information of charcoal samples
@@ -210,6 +235,7 @@ sed.rate.charcoal <- TRAM20_age_depth_sed_rate %>% #dataframe with sedimentation
   mutate (across(c(depth_diff, age_diff, sed_rate), ~ ifelse(row_number() == 1 & is.na(.x), .x[2], .x))) %>% #we assume that sedimentation rate of first sample is the same than the second
   filter(SampleId %in% mass.density$SampleId)
 ```
+
 ## 3.2. Calculate CHAR
 First calculate CHAR based on the number of particles
 ```{r}
@@ -242,6 +268,7 @@ CHAR <- CharTotS.110.age %>%
 #Correlation between CHAR and sedimentation rate
 cor(CHAR$sed_rate, CHAR$CHAR.tram, method = 'pearson') #cor = 0.36 -> moderate correlation
 ```
+
 ## 3.3. Figure CHAR
 ```{r}
 pCHAR <- CHAR %>%
@@ -252,8 +279,9 @@ pCHAR <- CHAR %>%
   scale_x_reverse(limits = c(max(CHAR$age)/1000, min(CHAR$age)/1000),
                   breaks = seq(0.5, 12, by = 0.5),
                   labels = ifelse(seq(0.5, 12, by = 0.5) %% 1 == 0, as.character(seq(0.5, 12, by = 0.5)), "")) +
-  theme_classic() #+
+  theme_classic()
 ```
+
 ## 3.4. Figure 6
 ```{r}
 line_depths <- c(449, 497, 537, 620, 719, 765, 782, 822, 847)
@@ -303,9 +331,12 @@ fig6.1_coniss/fig6.2_coniss +
   plot_layout(heights = c(1, 1), ncol = 2, nrow = 1, guides = "collect") +
   theme(plot.margin = margin(0, 0, 0, 0, "pt")) #save pdf A5
 ```
+
 # 4. Tramacastilla pollen
-```{r}
+```{r, eval = FALSE}
 head(tram20_pollen) #Pollen counts
+```
+```{r}
 summary(tram20_pollen$`Terrestrial pollen sum`)
 sd(tram20_pollen$`Terrestrial pollen sum`)
 summary(tram20_pollen$`No of taxa`)
@@ -320,7 +351,9 @@ tram20_pollen %>%
                   breaks = seq(0.5, 25, by = 0.5),
                   labels = ifelse(seq(0.5, 25, by = 0.5) %% 1 == 0, as.character(seq(0.5, 25, by = 0.5)), "")) +
   theme_classic() +
-  geom_smooth(method = "loess")
+  geom_smooth(method = "loess") +
+  labs(x = "Age (ka BP)",
+       y = "Number of pollen types")
 ```
 Import pollen groups
 ```{r}
@@ -332,7 +365,7 @@ length(unique(pollen_group$pollen_group_discussion))
 Compute percentages for all taxa
 ```{r}
 tram20_pollen_long <- tram20_pollen %>%
-  select(-c(`Evergreen trees`:Trees, Shrubs, Herbs, Hygrophytes, Hydrophytes:Spores, `Charcoal <150`)) %>%#first i remove columns that correspond to taxa groups
+  select(-c(`Evergreen trees`:Trees, Shrubs, Herbs, Hygrophytes, Hydrophytes:Spores, `Charcoal <150`)) %>%#first remove columns that correspond to taxa groups
   pivot_longer(cols = c("Abies":"Undetermined"),
                values_to = 'pollen_counts',
                names_to = 'Taxon') %>%
@@ -369,6 +402,7 @@ tram20_pollen_long_perc <- tram20_pollen_long %>%
   mutate(percentage = (pollen_counts/`Terrestrial pollen sum`)*100) %>%
   ungroup()
 ```
+
 # 5. Pollen Accumulation Rate (PAR)
 ```{r}
 head(tram20_density_pollen)
@@ -387,12 +421,12 @@ tram20_PAR <- tram20_pollen %>%
   mutate_all(~replace(., is.na(.), 0)) %>%
   mutate(across(!c(SampleId, depth, age, `Lycopodium`, Density, Mass, sed_rate),
                 ~ (. / ((`Lycopodium` * Mass)/41696)) * Density * sed_rate,
-                .names = "PAR_{.col}")) %>% #41696 lycopodium spores  in each sample
+                .names = "PAR_{.col}")) %>% #41696 Lycopodium spores in each sample
   select(c(depth, age, PAR_Abies:`PAR_Undetermined`)) %>%
   rename_with(~ gsub("^PAR_", "", .x)) %>% #remove prefix
   select(where(~ sum(., na.rm = TRUE) > 0)) #only taxons that appear in these samples
 ```
-Sum terrestrial PAR in each sample to see relationship between PAR (terrestrial vegetation) and CHAR
+Sum of terrestrial PAR in each sample to see relationship between terrestrial vegetation and CHAR
 ```{r}
 PAR_sum <- tram20_PAR %>% mutate(sum = rowSums(across(Abies:Viola))) %>%
   left_join(CHAR %>% select(age, CHAR.tram), by = "age")
@@ -400,10 +434,13 @@ PAR_sum <- tram20_PAR %>% mutate(sum = rowSums(across(Abies:Viola))) %>%
 summary(PAR_sum$sum)
 sd(PAR_sum$sum)
 
-PAR_sum %>% ggplot(aes(x = age, y=sum)) +
+PAR_sum %>% ggplot(aes(x = age/1000, y=sum)) +
   geom_col() +
-  scale_x_reverse() +
-  theme_classic()
+  scale_x_reverse(breaks = seq(0.5, 25, by = 0.5),
+                  labels = ifelse(seq(0.5, 25, by = 0.5) %% 1 == 0, as.character(seq(0.5, 25, by = 0.5)), "")) +
+  theme_classic() +
+  labs(y = "Sum of PAR",
+       x = "Age (ka BP)")
 
 PAR.CHAR <- PAR_sum %>%
   na.omit()
@@ -423,6 +460,7 @@ PAR.CHAR %>%
   theme(text = element_text(size = 12),
         plot.title = element_text(size  =  16))
 ```
+
 ## 5.1. PAR grouped
 ```{r}
 tram20_PAR_groups <- tram20_PAR %>%
@@ -438,6 +476,7 @@ tram20_PAR_groups <- tram20_PAR %>%
          Hygrophytes, Hydrophytes, Undetermined) %>% #keep order
   as.data.frame()
 ```
+
 ### 5.1.1. Compute clustering
 ```{r}
 tram.dist.PARgroup <- vegdist(tram20_PAR_groups, method = "bray", binary = FALSE, diag = FALSE, upper = FALSE, na.rm = FALSE)
@@ -449,6 +488,7 @@ cluster_boundaries <- which(diff(coniss.zones.10)!=0)
 coniss.depths <- tram20_PAR_groups$depth[cluster_boundaries] #depths = c(447, 495, 535, 618, 717, 763, 778, 818, 845)
 coniss.ages <- tram20_PAR_groups$age[cluster_boundaries] #ages = c(2003, 3576, 4173, 6192, 11280, 12713, 14131, 14909, 21663)
 ```
+
 ## 5.2. PAR grouped groups_discussion
 ```{r}
 tram20_PAR_groups_discussion <- tram20_PAR %>%
@@ -459,9 +499,10 @@ tram20_PAR_groups_discussion <- tram20_PAR %>%
   pivot_wider(names_from = pollen_group_discussion, values_from = PAR_sum, values_fill = 0) %>% #back to wide format
   select(age, depth, Abies, Pinus, Juniperus, Fagus, Betula, Corylus, `Deciduous Quercus`, Tilia, Ulmus,
          `Evergreen trees`, `Other deciduous trees`, Shrubs, Poaceae, `Steppe taxa`, `Other herbs`, `Anthropogenic taxa`,
-         Hygrophytes, Hydrophytes, Undetermined) %>% #keep order and exclude Aquatics, Ferns, Selaginella
+         Hygrophytes, Hydrophytes, Undetermined) %>% #keep order and exclude Ferns and Selaginella
   as.data.frame()
 ```
+
 ## 5.3. PAR all pollen types and aquatics - Supplementary Figure 5
 Plot bar plot
 ```{r}
@@ -493,6 +534,7 @@ addClustZone(pollen.plot.PAR2, tram.chclust.PARgroup, nZone=10, lwd=1.5, lty=2, 
 text(x = par("usr")[1] + 1.15 * diff(par("usr")[1:2]),
      y = labels_points, labels = zone_labels_pollen, pos = 2, cex = 0.6, xpd = TRUE)
 ```
+
 # 6. Pollen percentages with all taxons - Supplementary Figure 4
 ```{r}
 tram20_pollen_perc <- tram20_pollen_long_perc %>%
@@ -525,13 +567,14 @@ addClustZone(pollen.plot.all.2, tram.chclust.PARgroup, nZone=10, lwd=1.5, lty=2,
 text(x = par("usr")[1] + 1.15 * diff(par("usr")[1:2]),
      y = labels_points, labels = zone_labels_pollen, pos = 2, cex = 0.6, xpd = TRUE)
 ```
+
 # 7. Pollen and CHAR
+
 ## 7.1. Figure 4 - Pollen, CHAR and sedimentation rate
 First i want to generate a dataframe with CHAR and sedimentation rate
 ```{r}
 tram20_CHAR_pollen_groups_general_perc <- tram20_pollen_groups_general_perc %>%
   full_join(CHAR %>% select(age, CHAR.tram), by = "age") %>%
-  #mutate(across(where(is.numeric), ~ replace_na(., 0))) %>% #replace NAs
   select(-depth) %>%
   arrange(age) %>%
   mutate(across(c(CHAR.tram), ~ . *10)) %>% #BE CAREFUL WITH THESE. IT IS ONLY TO BETTER REPRESENT THE DATA
@@ -582,6 +625,7 @@ text(x = par("usr")[1] + 1.05 * diff(par("usr")[1:2]),
      y = labels_points, labels = zone_labels_pollen, pos = 2, cex = 0.6, xpd = TRUE)
 #save pdf A4 and divide x axis by CHAR/10 and multiply sed_rate by 4
 ```
+
 ## 7.2. Figure 5 - PAR, CHAR and sedimentation rate
 ```{r}
 tram20_CHAR_PAR_groups <- tram20_PAR_groups %>%
@@ -626,6 +670,7 @@ text(x = par("usr")[1] + 1.05 * diff(par("usr")[1:2]),
      y = labels_points, labels = zone_labels_pollen, pos = 2, cex = 0.6, xpd = TRUE)
 #save pdf A4 and divide x axis of CHAR by 1000000 and sed_rate by 20000
 ```
+
 # 8. Temperature ~ CHAR
 ```{r}
 bins <- CHAR$age
@@ -659,6 +704,7 @@ temp.char.gls <- gls(d13C.Mendukilo ~ CHAR.tram, data = temp.char)
 summary(temp.char.gls)
 cor(temp.char$d13C.Mendukilo, predict(temp.char.gls))^2 #R2 = 0.08
 ```
+
 # 9. XRF data
 Import table with all composite depths
 ```{r}
@@ -701,6 +747,7 @@ tram20_XRF_LECO_MS %>%
   scale_color_manual(values = c("darkblue", "brown", "red", "#6551CC", "#666666", "darkgrey",
                                "black", "#F76D5E", "purple", "#FF7F00", "black", "#EE4C97", "#F100F1"))
 ```
+
 ## 9.1. Figure 3 - XRF data with MS, LECO, XRF
 Ordered: MS, K & Si, Ca/Ti, S, TIC, TOC, Inc/Coh, Br, Fe/Mn, Rb/Zr
 ```{r}
@@ -791,6 +838,7 @@ tram20_XRF_LECO_MS %>%
   scale_color_manual(values = c("darkblue", "red", "#FF7F00")) +
   plot_layout(widths = c(1, 3, 2, 4))
 ```
+
 ## 9.2. Supplementary Figure - all XRF, MS, LECO data #####
 ```{r}
 head(tram20_XRF_LECO_MS_SuppFig)
@@ -857,18 +905,23 @@ tram20_XRF_LECO_MS_SuppFig %>%
                                 "red", "#FF7F00", "#9932CC", "#FFB90F", "#CD1076", "#8B814C")) +
   plot_layout(widths = c(1, 4, 13))
 ```
-# 10. Diatoms
-```{r}
-head(tram20_diatoms)
 
+# 10. Diatoms
+```{r, eval=FALSE}
+head(tram20_diatoms)
+```
+```{r}
 #diatoms accumulation
 summary(tram20_diatoms$sum_diatoms)
 tram20_diatoms %>%
   ggplot(aes(x = age/1000, y = sum_diatoms)) +
   geom_point() +
   geom_line() +
-  scale_x_reverse(breaks = seq(0, 15, 1)) +
-  theme_classic()
+  scale_x_reverse(breaks = seq(0.5, 15, by = 0.5),
+                  labels = ifelse(seq(0.5, 15, by = 0.5) %% 1 == 0, as.character(seq(0.5, 15, by = 0.5)), "")) +
+  theme_classic() +
+  labs(y = "Sum of diatoms",
+       x = "Age (ka BP)")
 
 #diatoms richness
 summary(tram20_diatoms$richness)
@@ -879,16 +932,6 @@ inc_diatoms <- rep(5, ncol(tram20_diatoms %>%
                      select(Achnanthes.brevipes:Ulnaria.sp) %>%
                      select(where(~ sum(., na.rm = TRUE) > 5))))
 ex.diat <- rep(TRUE, times = 55)
-riojaPlot(tram20_diatoms %>%
-            select(Achnanthes.brevipes:Ulnaria.sp) %>%
-            select(where(~ sum(., na.rm = TRUE) > 5)), 
-          tram20_diatoms %>%
-            select(depth) %>%
-            rename("Depth (cm)" = "depth"),
-          yinterval = 20, ytks1=seq(380, 800, 20), scale.percent = TRUE, lwd.bar = 2, symb.cex = 8, symb.pch = 4,
-          plot.exag = TRUE, srt.xlabel = 70, min.width.pc=0, x.pc.inc=inc_diatoms,
-          cex.xaxis=0.7, cex.xlabel=0.8, las.xaxis=2)
-
 diatoms_selection <- strat.plot(tram20_diatoms %>%
                                   select(Achnanthes.brevipes:Ulnaria.sp) %>%
                                   select(where(~ sum(., na.rm = TRUE) > 5)),
@@ -907,15 +950,6 @@ Supplementary Figure 6 - all diatoms
 inc_diatoms_all <- rep(5, ncol(tram20_diatoms %>%
                              select(Achnanthes.brevipes:Ulnaria.sp)))
 ex.diatsupp <- rep(TRUE, times = 113)
-riojaPlot(tram20_diatoms %>%
-            select(Achnanthes.brevipes:Ulnaria.sp), 
-          tram20_diatoms %>%
-            rename("Depth (cm)" = "depth") %>%
-            select(`Depth (cm)`),
-          yinterval = 1000, ytks1=seq(380, 880, 20), scale.percent = TRUE, lwd.bar = 2, symb.cex = 8, symb.pch = 4,
-          plot.exag = TRUE, srt.xlabel = 70, min.width.pc=0, x.pc.inc=5,
-          cex.xaxis=0.7, cex.xlabel=0.7, las.xaxis=2, xSpace=0.002) #save pdf 17*11
-
 strat.plot(tram20_diatoms %>%
              select(Achnanthes.brevipes:Ulnaria.sp),
            yvar=tram20_diatoms %>%
@@ -926,16 +960,20 @@ strat.plot(tram20_diatoms %>%
            exag = ex.diatsupp, x.pc.inc=5,
            x.pc.omit0=TRUE, las=2, xSpace=0.005) #save pdf 17*11
 ```
-# 11. Discussion figure vertical
-## 11.1. Import sedaDNA data and create data frames for plotting
-### 11.1.1. Plant sedaDNA
-```{r}
-head(plant_dna)
 
+# 11. Discussion figure vertical
+
+## 11.1. Import sedaDNA data and create data frames for plotting
+
+### 11.1.1. Plant sedaDNA
+```{r, eval=FALSE}
+head(plant_dna)
+```
+```{r}
 plant_rai <- plant_dna %>% #obtain dataframe
   mutate(across(.cols = starts_with("weightrep_sample.TRAM_1b_"),
                 .fns = ~ if_any(starts_with("proprep_sample.TRAM_1b_"), ~ . <= 0.125) * 0 + 
-                  if_all(starts_with("proprep_sample.TRAM_1b_"), ~ . > 0.125) * .)) %>% #i discard samples unreplicated
+                  if_all(starts_with("proprep_sample.TRAM_1b_"), ~ . > 0.125) * .)) %>% #discard samples unreplicated
   mutate(across(starts_with("totread_sample."),
                 ~. / sum(., na.rm = TRUE), .names = "norm_{col}")) %>% #normalize totread
   mutate(across(starts_with ("norm_totread_sample."),
@@ -1080,7 +1118,7 @@ anthropogenic_dna <- plant_rai %>%
   group_by(group, age) %>%
   summarise(Influx = sum(RAI, na.rm = TRUE), .groups = "drop")
 ```
-Now i join all herbs DNA into one dataframe
+Now join all herbs DNA into one dataframe
 CAREFUL: the herbaceous component includes poaceae, anthropogenic and steppe, so i will have to exclude them from the herbs_dna dataframe for the figure
 ```{r}
 herbs_poaceae_steppe_anthropogenic_dna <- herbs_dna %>%
@@ -1093,10 +1131,12 @@ herbs_poaceae_steppe_anthropogenic_dna <- herbs_dna %>%
                names_to = "group",
                values_to = "Influx")
 ```
+
 ### 11.1.2. Animal sedaDNA
-```{r}
+```{r, eval = FALSE}
 head(RAI.animals)
 ```
+
 ## 11.2. Join all data
 ```{r}
 figure_all <- tram20_PAR_groups_discussion %>%
@@ -1121,6 +1161,7 @@ XRF_selection <- tram20_XRF_LECO_MS %>%
   relocate(age, .after = "composite_depth") %>%
   select(SampleId, age, Si, TOC)
 ```
+
 ## 11.3. Plot
 ```{r}
 p.char <- figure_all %>%
@@ -1316,6 +1357,7 @@ p.char/p.w.l.ratio/p.trees/p.dec.trees/p.herbs_anthropogenic/p.trees_dna/p.dec.t
   plot_layout(heights = c(1, 1, 2, 2, 2, 1, 1, 1, 1, 2), guides = "collect") +
   theme(plot.margin = margin(0, 0, 0, 0, "pt")) #save pdf A4 vertical
 ```
+
 # 12. Discussion figure methodological approach
 ```{r}
 figure_percentages <- tram20_pollen_groups_long %>%
@@ -1488,26 +1530,33 @@ p8.trees_perc/p8.dec.trees_perc/p8.herbs_perc/p8.trees_PAR/p8.dec.trees_PAR/p8.h
   plot_layout(heights = c(3, 4, 4), ncol = 3, nrow = 3) +
   theme(plot.margin = margin(0, 0, 0, 0, "pt")) #save pdf A4 horizontal
 ```
+
 # 13. Discussion figure Pyrenean records
+
 ## 13.1. Import data
+
 ### 13.1.1. Pllan dEstan
-```{r}
+```{r, eval = FALSE}
 head(PDE_pollen)
 ```
+
 ### 13.1.2. Marbore
-```{r}
+```{r, eval = FALSE}
 head(marbore_PAR)
 head(marbore_pollen)
 ```
+
 ### 13.1.3. Basa de la Mora
-```{r}
+```{r, eval = FALSE}
 head(bsm_PAR)
 head(bsm_pollen)
 ```
-### 13.1.4. Bassa Nera
-```{r}
-head(bassanera)
 
+### 13.1.4. Bassa Nera
+```{r, eval = FALSE}
+head(bassanera)
+```
+```{r}
 bassanera_groups <- bassanera %>%
   filter(SampleId == "group") %>%
   select(-SampleId, -age) %>%
@@ -1531,14 +1580,17 @@ bassanera_pollen <-  bassanera %>%
   group_by(age, taxon) %>%
   mutate(percentage = (pollen_counts/pollen_sum)*100)
 ```
+
 ### 13.1.5. Portalet
-```{r}
+```{r, eval = FALSE}
 head(portalet_pollen)
 ```
-### 13.1.6. Estanya
-```{r}
-head(estanya)
 
+### 13.1.6. Estanya
+```{r, eval = FALSE}
+head(estanya)
+```
+```{r}
 estanya_groups <- estanya %>%
   pivot_longer(Abies:Ruppia, names_to = "taxon", values_to = "pollen_count") %>%
   mutate(group = case_when(taxon %in% c("Betula", "Corylus", "Alnus", "Carpinus", "Salix", "Ulmus",
@@ -1560,41 +1612,7 @@ estanya_pollen <- estanya %>%
                values_to = "percentage",
                names_to = "taxon")
 ```
-### 13.1.7. Bosc dels Estanyons
-```{r}
-head(estanyons)
 
-estanyons_groups <- estanyons %>%
-  filter(SampleId == "group") %>%
-  select(-SampleId, -age) %>%
-  pivot_longer(everything(), names_to = "taxon", values_to = "group") %>%
-  mutate(group = case_when(taxon %in% c("Abies", "Acer", "Alnus", "Betula", "Carpinus", "Castanea", "Corylus",
-                                        "Fagus", "Fraxinus", "Juglans", "Olea", "Ostrya", "Pinus", "Pistacia",
-                                        "Populus", "Quercus", "Quercus ilex", "Salix", "Sorbus", "Tilia", "Ulmus") ~ "TR",
-                           taxon %in% c("Buxus", "Calluna", "Cistus", "Daphne", "Ephedra", "Erica", "Ericaceae",
-                                        "Genista/Cytisus", "Hedera", "Ilex aquifolium", "Juniperus", "Lonicera",
-                                        "Phillyrea", "Prunus", "Rhamnus", "Rhododendron", "Sambucus", "Vaccinium",
-                                        "Viburnum", "Viscum", "Vitis") ~ "SH",
-                           group == "UPHE" ~ "UPHE"))
-
-estanyons_pollen <- estanyons %>%
-  filter(SampleId != "group") %>%
-  select(-SampleId) %>%
-  mutate(across(everything(), as.numeric)) %>%
-  rowwise() %>%
-  mutate_all(~replace(., is.na(.), 0)) %>%
-  mutate(tree = sum(c_across(any_of(estanyons_groups$taxon[estanyons_groups$group == "TR"]))),
-         herb = sum(c_across(any_of(estanyons_groups$taxon[estanyons_groups$group == "UPHE"])))) %>%
-  ungroup() %>%
-  mutate(pollen_sum = rowSums(select(., Abies:Ulmus), na.rm = TRUE)) %>%
-  relocate(pollen_sum, .after = "age") %>%
-  pivot_longer(cols = c("Abies":"herb"),
-               values_to = "pollen_counts",
-               names_to = "taxon") %>%
-  mutate_at("pollen_counts", ~replace(., is.na(.), 0)) %>%
-  group_by(age, taxon) %>%
-  mutate(percentage = (pollen_counts/pollen_sum)*100)
-```
 ## 13.2. Plot Holocene figure
 ```{r}
 periods_lines_holocene <- c(4.2, 8.2, 11.7) #to add Holocene periods
@@ -1736,6 +1754,7 @@ p11.marbore.v/p11.bsm.v/p11.bassanera.v/p11.portalet.v/p11.tramacastilla.v +
   plot_layout(ncol = 1, nrow = 5, guides = "collect") +
   theme(plot.margin = margin(0, 0, 0, 0, "pt")) #save pdf A4 horizontal
 ```
+
 ## 13.3 Plot Lateglacial records
 ```{r}
 periods_lines_lateglacial <- c(11.7, 12.9, 14, 14.9) # to add Lateglacial periods
@@ -1843,4 +1862,3 @@ p12.portalet/p12.pde/p12.tram/p12.estanya +
   plot_layout(ncol = 1, nrow = 4, guides = "collect") +
   theme(plot.margin = margin(0, 0, 0, 0, "pt")) #save pdf A4 horizontal
 ```
-
