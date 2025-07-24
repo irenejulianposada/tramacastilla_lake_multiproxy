@@ -230,7 +230,7 @@ head(mass.density) #dataframe with volume and mass information of charcoal sampl
 head(counting) #dataframe with sampleid and number of charcoal particles found in each sample
 head(CharTotS.110.age) #dataframe with sampleid and all charcoal metrics
 
-sed.rate.charcoal <- TRAM20_age_depth_sed_rate %>% #dataframe with sedimentation rate of charcoal samples
+sed.rate.charcoal <- tram20_depth_ages_sed_rate %>% #dataframe with sedimentation rate of charcoal samples
   mutate(SampleId = str_replace_all(SampleId, "TRAM20-1B-", "TRAM-")) %>% #change SampleId so it is the same than in CHAR 
   mutate (across(c(depth_diff, age_diff, sed_rate), ~ ifelse(row_number() == 1 & is.na(.x), .x[2], .x))) %>% #we assume that sedimentation rate of first sample is the same than the second
   filter(SampleId %in% mass.density$SampleId)
@@ -246,8 +246,7 @@ CHAR_number <- counting %>%
          "Density" = "Density..dry.sample...g.cm3.") %>%
   mutate_at("CharCount", ~replace(., is.na(.), 0)) %>% #NAs in CharCount are samples with no charcoal, so 0
   left_join(sed.rate.charcoal %>%
-              select(SampleId, age, sed_rate, composite_depth) %>%
-              rename("depth" = "composite_depth"), by = "SampleId") %>%
+              select(SampleId, age, sed_rate, depth), by = "SampleId") %>%
   relocate("age", .after = "SampleId") %>%
   mutate(age = as.numeric(age)) %>%
   mutate("CHAR.tram" = (CharCount/Mass) * Density * sed_rate) %>%
@@ -408,7 +407,7 @@ tram20_pollen_long_perc <- tram20_pollen_long %>%
 head(tram20_density_pollen)
 head(pollen_samples_mass)
 
-sed.rate.pollen <- TRAM20_age_depth_sed_rate %>% #dataframe with sedimentation rate of charcoal samples
+sed.rate.pollen <- tram20_depth_ages_sed_rate %>% #dataframe with sedimentation rate of charcoal samples
   mutate (across(c(depth_diff, age_diff, sed_rate), ~ ifelse(row_number() == 1 & is.na(.x), .x[2], .x))) %>% #we assume that sedimentation rate of first sample is the same than the second
   filter(SampleId %in% tram20_pollen$SampleId)
 
@@ -1674,25 +1673,6 @@ p11.marbore.v <- marbore_pollen %>%
   scale_fill_manual(values = c("#BFB2FF", "#422CB2", "#749B58", "#99CC00", "#AE1F63", "#9ECAE1")) +
   theme_classic() +
   labs(title = "Marboré \n (2612 m a.s.l.)") +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        legend.position = "none",
-        plot.margin = margin(0, 0, 0, 0, "cm"),
-        plot.title.position = "panel") +
-  geom_vline(xintercept = periods_lines_holocene, color = "black", linetype = "dashed", linewidth = 0.3)
-
-p11.estanyons.v <- estanyons_pollen %>%
-  filter(taxon %in% c("Betula", "Corylus", "Quercus", "Abies", "Pinus", "herb")) %>%
-  mutate(taxon = factor(taxon)) %>%
-  mutate(taxon = fct_relevel(taxon, "Abies", "Pinus", "Betula", "Corylus", "Quercus", "herb")) %>%
-  ggplot(aes(x = age/1000, y = percentage, group = taxon, fill = taxon)) +
-  geom_area()+
-  scale_x_reverse(limits = c(11.7, 0),
-                  breaks = seq(0, 12, by = 0.5),
-                  labels = ifelse(seq(0, 12, by = 0.5) %% 1 == 0, as.character(seq(0, 12, by = 0.5)), "")) +
-  scale_fill_manual(values = c("#BFB2FF", "#422CB2", "#749B58", "#99CC00", "#AE1F63", "#9ECAE1")) +
-  theme_classic() +
-  labs(title = "Bosc dels Estanyons \n (2180 m a.s.l.)") +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank(),
         legend.position = "none",
