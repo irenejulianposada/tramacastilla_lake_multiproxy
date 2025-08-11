@@ -960,7 +960,7 @@ strat.plot(tram20_diatoms %>%
            x.pc.omit0=TRUE, las=2, xSpace=0.005) #save pdf 17*11
 ```
 
-# 11. Discussion figure vertical
+# 11. Figure 10 - Discussion figure vertical
 
 ## 11.1. Import sedaDNA data and create data frames for plotting
 
@@ -1357,7 +1357,7 @@ p.char/p.w.l.ratio/p.trees/p.dec.trees/p.herbs_anthropogenic/p.trees_dna/p.dec.t
   theme(plot.margin = margin(0, 0, 0, 0, "pt")) #save pdf A4 vertical
 ```
 
-# 12. Discussion figure methodological approach
+# 12. Figure 8 - Discussion figure methodological approach
 ```{r}
 figure_percentages <- tram20_pollen_groups_long %>%
   group_by(SampleId, pollen_group_discussion) %>%
@@ -1612,7 +1612,7 @@ estanya_pollen <- estanya %>%
                names_to = "taxon")
 ```
 
-## 13.2. Plot Holocene figure
+## 13.2. Plot Figure 11 - Holocene records
 ```{r}
 periods_lines_holocene <- c(4.2, 8.2, 11.7) #to add Holocene periods
 p11.tramacastilla.v <- tram20_pollen %>%
@@ -1735,7 +1735,7 @@ p11.marbore.v/p11.bsm.v/p11.bassanera.v/p11.portalet.v/p11.tramacastilla.v +
   theme(plot.margin = margin(0, 0, 0, 0, "pt")) #save pdf A4 horizontal
 ```
 
-## 13.3 Plot Lateglacial records
+## 13.3 Plot Figure 12 - Lateglacial records
 ```{r}
 periods_lines_lateglacial <- c(11.7, 12.9, 14, 14.9) # to add Lateglacial periods
 p12.portalet <- portalet_pollen %>%
